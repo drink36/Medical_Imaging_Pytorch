@@ -14,17 +14,17 @@ from load import LABELSTONAME
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CFG = {
-    "root_dir":       "C:\\Users\\ooo91\\Desktop\\School\\Medical\\Dataset\\BraTS2024-BraTS-GLI-TrainingData\\training_data1_v2",
-    "data_ratio":     0.05,    # fraction of all cases to use, e.g. 0.1 = 10% for quick runs
+    "npy_dir":        "C:\\Users\\ooo91\\Desktop\\School\\Medical\\Dataset\\BraTS2024-preprocessed",
+    "data_ratio":     1.0,    # fraction
     "val_ratio":      0.2,
     "axis":           2,        # axial slices
     "tumor_only":     True,
     "in_channels":    4,        # t1c, t1n, t2f, t2w
     "num_classes":    5,        # background + NETC + SNFH + ET + RC
     "batch_size":     16,
-    "num_workers":    0,        # keep 0 on Windows; increase on Linux
+    "num_workers":    0,        
     "lr":             1e-4,
-    "epochs":         50,
+    "epochs":         20,
     "checkpoint_dir": "checkpoints",
     "seed":           42,
 }
@@ -69,21 +69,22 @@ def dice_score(preds: torch.Tensor, targets: torch.Tensor, num_classes: int) -> 
 
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-def split_cases(root_dir: str, data_ratio: float, val_ratio: float, seed: int):
-    cases = sorted(d for d in glob.glob(os.path.join(root_dir, "*")) if os.path.isdir(d))
+def split_cases(npy_dir: str, data_ratio: float, val_ratio: float, seed: int):
+    seg_files = sorted(glob.glob(os.path.join(npy_dir, "*_seg.npy")))
+    case_ids  = [os.path.basename(f)[:-8] for f in seg_files]  # strip _seg.npy
     random.seed(seed)
-    random.shuffle(cases)
-    cases = cases[:max(2, int(len(cases) * data_ratio))]  # subset before split
-    n_val = max(1, int(len(cases) * val_ratio))
-    return cases[n_val:], cases[:n_val]
+    random.shuffle(case_ids)
+    case_ids = case_ids[:max(2, int(len(case_ids) * data_ratio))]
+    n_val = max(1, int(len(case_ids) * val_ratio))
+    return case_ids[n_val:], case_ids[:n_val]
 
 
 def get_loaders(cfg: dict):
-    train_cases, val_cases = split_cases(cfg["root_dir"], cfg["data_ratio"], cfg["val_ratio"], cfg["seed"])
-    print(f"Cases  — train: {len(train_cases)}, val: {len(val_cases)}")
+    train_ids, val_ids = split_cases(cfg["npy_dir"], cfg["data_ratio"], cfg["val_ratio"], cfg["seed"])
+    print(f"Cases  — train: {len(train_ids)}, val: {len(val_ids)}")
 
-    train_ds = BraTSDataset(train_cases, axis=cfg["axis"], tumor_only=cfg["tumor_only"])
-    val_ds   = BraTSDataset(val_cases,   axis=cfg["axis"], tumor_only=cfg["tumor_only"])
+    train_ds = BraTSDataset(cfg["npy_dir"], case_ids=train_ids, axis=cfg["axis"], tumor_only=cfg["tumor_only"])
+    val_ds   = BraTSDataset(cfg["npy_dir"], case_ids=val_ids,   axis=cfg["axis"], tumor_only=cfg["tumor_only"])
     print(f"Slices — train: {len(train_ds)}, val: {len(val_ds)}")
 
     train_loader = DataLoader(
