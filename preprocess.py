@@ -19,7 +19,7 @@ from load import MODALITIES, load_case, normalize_nonzero
 
 ROOT_DIR = "C:\\Users\\ooo91\\Desktop\\School\\Medical\\Dataset\\BraTS2024-BraTS-GLI-TrainingData\\training_data1_v2"
 OUT_DIR  = "C:\\Users\\ooo91\\Desktop\\School\\Medical\\Dataset\\BraTS2024-preprocessed"
-DATA_RATIO = 0.1  # fraction of cases to preprocess for quick runs
+DATA_RATIO = 1  # fraction of cases to preprocess for quick runs
 
 def preprocess(root_dir: str, out_dir: str) -> None:
     os.makedirs(out_dir, exist_ok=True)

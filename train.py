@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from dataset import BraTSDataset
-from unet import UNet
+from UNet.unet import UNet
 from load import LABELSTONAME
 
 # ── Config ────────────────────────────────────────────────────────────────────

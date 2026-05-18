@@ -20,7 +20,7 @@ import torch
 import nibabel as nib
 from torch.utils.data import DataLoader, TensorDataset
 
-from unet import UNet
+from UNet.unet import UNet
 from load import MODALITIES, load_nifti, normalize_nonzero, get_case_paths, LABELSTONAME
 
 
@@ -74,7 +74,7 @@ def dice_3d(pred: np.ndarray, gt: np.ndarray, num_classes: int) -> list:
         p = (pred == c).astype(np.float32)
         t = (gt   == c).astype(np.float32)
         denom = p.sum() + t.sum()
-        scores.append(float("nan") if denom == 0 else float(2 * (p * t).sum() / denom))
+        scores.append(float("nan") if t.sum() == 0 else float(2 * (p * t).sum() / denom))
     return scores
 
 
@@ -92,7 +92,6 @@ def run(case_dir: str, model, cfg: dict, device: torch.device, out_dir: str, gt_
 
     os.makedirs(out_dir, exist_ok=True)
     save_nifti(pred_vol, ref_path, os.path.join(out_dir, f"{case_id}-pred.nii.gz"))
-
     if gt_vol is not None:
         scores = dice_3d(pred_vol, gt_vol, cfg["num_classes"])
         class_names = [LABELSTONAME[i] for i in range(1, cfg["num_classes"])]
@@ -100,6 +99,8 @@ def run(case_dir: str, model, cfg: dict, device: torch.device, out_dir: str, gt_
         for name, d in zip(class_names, scores):
             print(f"    {name:<8}: {d:.4f}" if not np.isnan(d) else f"    {name:<8}: N/A (absent)")
         print(f"    mean    : {np.nanmean(scores):.4f}")
+        return scores
+    return None
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -107,6 +108,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--case_dir",    required=True, help="Case dir or root dir (with --batch_cases)")
     parser.add_argument("--ckpt",        default="checkpoints/best.pth")
+    parser.add_argument("--ratio",      default=0.1, type=float)
     parser.add_argument("--out_dir",     default="predictions")
     parser.add_argument("--batch_cases", action="store_true", help="Run all subdirs in case_dir")
     parser.add_argument("--gt",          default=None, help="Path to a single GT seg .nii.gz")
@@ -117,19 +119,35 @@ def main() -> None:
     print(f"Device: {device}")
 
     model, cfg = load_checkpoint(args.ckpt, device)
-
+    score = []
     if args.batch_cases:
         case_dirs = sorted(d for d in glob.glob(os.path.join(args.case_dir, "*")) if os.path.isdir(d))
+        case_dirs = case_dirs[:max(1, int(len(case_dirs) * args.ratio))]  # for quick testing
         print(f"Found {len(case_dirs)} cases")
         for case_dir in case_dirs:
             try:
                 case_id  = os.path.basename(case_dir)
                 gt_path  = os.path.join(args.gt_dir, f"{case_id}-seg.nii.gz") if args.gt_dir else None
-                run(case_dir, model, cfg, device, args.out_dir, gt_path)
+                score.append( run(case_dir, model, cfg, device, args.out_dir, gt_path) )
             except Exception as e:
                 print(f"  SKIP {case_dir}: {e}")
     else:
         run(args.case_dir, model, cfg, device, args.out_dir, args.gt)
+    print(f"\nDone! Predictions saved to {args.out_dir}")
+    if score:
+        print(f"\n=== Evaluation Results (N={len(score)} cases) ===")
+        
+        per_class_means = []
+        for i in range(1, cfg["num_classes"]):
+            class_scores = [s[i-1] for s in score]
+            valid_count = sum(1 for x in class_scores if not np.isnan(x))
+            mean = np.nanmean(class_scores)
+            std = np.nanstd(class_scores)
+            per_class_means.append(mean)
+            print(f"  {LABELSTONAME[i]:6s}: {mean:.4f} ± {std:.4f}  (n={valid_count}/{len(score)})")
+        
+        overall = np.nanmean(per_class_means)
+        print(f"\n  Overall Mean Dice (avg of per-class means): {overall:.4f}")
 
 
 if __name__ == "__main__":

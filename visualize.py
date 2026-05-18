@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from load import load_nifti, get_case_paths, normalize_nonzero, get_best_slices, LABELSTONAME
+from infer import dice_3d
 
 MODALITY = "t1c"
 ALPHA    = 0.5
@@ -28,7 +29,7 @@ def load_pred(pred_path: str) -> np.ndarray:
     return nib.load(pred_path).get_fdata().astype(np.uint8)
 
 
-def show(case_dir: str, pred_path: str, modality: str = "t1c", gt_path: str = None) -> None:
+def show(case_dir: str, pred_path: str, modality: str = "t1c", gt_path: str = None, save_path: str = None) -> None:
     _, paths      = get_case_paths(case_dir)
     img, _, _, _  = load_nifti(paths[modality])
     img           = normalize_nonzero(img)
@@ -58,7 +59,7 @@ def show(case_dir: str, pred_path: str, modality: str = "t1c", gt_path: str = No
     ROW_TITLES = {
         0: "Prediction",
         1: "Prediction only (no MRI)",
-        2: "Ground Truth  ← manually annotated labels",
+        2: "Ground Truth",
     }
 
     for col, (img2d, pred2d, gt2d, title) in enumerate(views):
@@ -84,15 +85,30 @@ def show(case_dir: str, pred_path: str, modality: str = "t1c", gt_path: str = No
         if row < n_rows:
             y = 1 - (row + 0.5) / n_rows
             fig.text(0.01, y, label, va="center", ha="left",
-                     fontsize=10, fontweight="bold", rotation=90)
+                     fontsize=14, fontweight="bold", rotation=90)
 
     # legend
     handles = [plt.Rectangle((0, 0), 1, 1, color=SEG_COLORS[i + 1], label=LABELSTONAME[i + 1])
                for i in range(4)]
     fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=10)
 
+    # dice scores — shown in top-right corner when GT is available
+    if gt is not None:
+        scores     = dice_3d(pred, gt.astype(np.int64), num_classes=5)
+        class_names = [LABELSTONAME[i] for i in range(1, 5)]
+        lines = ["3D Dice"] + [
+            f"{name}: {d:.3f}" if not np.isnan(d) else f"{name}: N/A"
+            for name, d in zip(class_names, scores)
+        ] + [f"mean: {np.nanmean(scores):.3f}"]
+        fig.text(0.99, 0.99, "\n".join(lines), va="top", ha="right",
+                 fontsize=9, fontfamily="monospace",
+                 bbox=dict(boxstyle="round", facecolor="white", alpha=0.8))
+
     plt.tight_layout()
     plt.subplots_adjust(left=0.08)
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved → {save_path}")
     plt.show()
 
 
@@ -103,8 +119,9 @@ def main() -> None:
     parser.add_argument("--modality", default="t1c", choices=["t1c", "t1n", "t2f", "t2w"],
                         help="Background MRI modality (default: t1c)")
     parser.add_argument("--gt",       default=None, help="Path to GT seg .nii.gz (optional)")
+    parser.add_argument("--save",     default=None, help="Path to save the figure (e.g. result.png)")
     args = parser.parse_args()
-    show(args.case_dir, args.pred, args.modality, args.gt)
+    show(args.case_dir, args.pred, args.modality, args.gt, args.save)
 
 
 if __name__ == "__main__":
